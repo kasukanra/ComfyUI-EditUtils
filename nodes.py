@@ -989,7 +989,7 @@ class AdaptiveLongestEdge_EditUtils:
     FUNCTION = "calculate_longest_edge"
 
     CATEGORY = "advanced/conditioning"
-    def calculate_longest_edge(self, image, max_size, min_size):
+    def calculate_longest_edge(self, image, min_size, max_size):
         output = max(image.shape[1], image.shape[2])
         # print("image.shape[2], image.shape[3]", image.shape[1], image.shape[2])
         # print("longest_edge", output)
