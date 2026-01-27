@@ -1,0 +1,14 @@
+[project]
+name = "editutils"
+description = ""
+version = "1.0.0"
+license = {file = "LICENSE"}
+
+[project.urls]
+Repository = "https://github.com/lrzjason/ComfyUI-EditUtils"
+#  Used by Comfy Registry https://comfyregistry.org
+
+[tool.comfy]
+PublisherId = "lrzjason"
+DisplayName = "ComfyUI-EditUtils"
+Icon = ""
