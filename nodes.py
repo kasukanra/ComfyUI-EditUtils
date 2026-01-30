@@ -1132,9 +1132,7 @@ class QwenEditTextEncode_EditUtils:
         
         # Process each image if provided
         if image1 is not None:
-            # Set mask to image1 if provided
-            if mask is not None:
-                model_config["mask"] = mask
+            
             config1 = {
                 "image": image1,
                 "to_ref": True,  # Default to True
@@ -1148,6 +1146,9 @@ class QwenEditTextEncode_EditUtils:
                 "vl_crop": "center",  # Default to center
                 "vl_upscale": "lanczos"  # Default to lanczos
             }
+            # Set mask to image1 if provided
+            if mask is not None:
+                config1["mask"] = mask
             configs.append(config1)
         
         if image2 is not None:
@@ -1237,9 +1238,7 @@ class Flux2KleinEditTextEncode_EditUtils:
         
         # Process each image if provided
         if image1 is not None:
-            # Set mask to image1 if provided
-            if mask is not None:
-                model_config["mask"] = mask
+            
             config1 = {
                 "image": image1,
                 "to_ref": True,  # Default to True
@@ -1248,6 +1247,9 @@ class Flux2KleinEditTextEncode_EditUtils:
                 "ref_crop": "pad",  # Default to pad
                 "ref_upscale": "lanczos",  # Default to lanczos
             }
+            # Set mask to image1 if provided
+            if mask is not None:
+                config1["mask"] = mask
             configs.append(config1)
         
         if image2 is not None:
