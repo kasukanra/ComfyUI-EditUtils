@@ -47,8 +47,8 @@ class CropWithPadInfo_EditUtils:
         original_content_width = img.shape[3] - width_padding
         original_content_height = img.shape[2] - height_padding
         
-        # Crop to get just the original content area (which was placed at position (0,0))
-        cropped_img = img[:, :, x:original_content_height, y:original_content_width]
+        # Crop to get just the original content area (height then width)
+        cropped_img = img[:, :, y:y + original_content_height, x:x + original_content_width]
         
         # Convert back to (H, W, C) format
         cropped_image = cropped_img.movedim(1, -1)
@@ -339,6 +339,7 @@ class EditTextEncode_EditUtils:
         model_name = model_config["model_name"] if "model_name" in model_config else None
         is_qwen = model_name == "qwen"
         vae_unit = model_config["vae_unit"] if "vae_unit" in model_config else 8
+        llama_template = model_config["llama_template"] if is_qwen and "llama_template" in model_config else None
         image_prompt = ""
         
         pad_info = {
@@ -380,7 +381,6 @@ class EditTextEncode_EditUtils:
             ref_upscale = image_obj["ref_upscale"]
             
             if is_qwen:
-                llama_template = model_config["llama_template"]
                 to_vl = image_obj["to_vl"]
                 vl_resize = image_obj["vl_resize"]
                 vl_target_size = image_obj["vl_target_size"]
@@ -427,8 +427,6 @@ class EditTextEncode_EditUtils:
                     canvas_width = width_ceil * vae_unit
                     
                     height_ceil = math.ceil(scaled_height / vae_unit)
-                    if scaled_height % vae_unit != 0:
-                        height_ceil +=1
                     canvas_height = height_ceil * vae_unit
                     # pad image to canvas size
                     canvas = torch.zeros(
@@ -532,9 +530,10 @@ class EditTextEncode_EditUtils:
             tokens = clip.tokenize(full_prompt)
         conditioning = clip.encode_from_tokens_scheduled(tokens)
         samples = torch.zeros(1, 4, 128, 128)
-        # conditioning_only_with_main_ref = None
+        conditioning_full_refs = conditioning
+        conditioning_main_ref = conditioning
         if len(ref_latents) > 0:
-            # conditioning_only_with_main_ref = node_helpers.conditioning_set_values(conditioning, {"reference_latents": [ref_latents[main_image_index]]}, append=True)
+            conditioning_main_ref = node_helpers.conditioning_set_values(conditioning, {"reference_latents": [ref_latents[main_image_index]]}, append=True)
             conditioning_full_refs = node_helpers.conditioning_set_values(conditioning, {"reference_latents": ref_latents}, append=True)
             samples = ref_latents[main_image_index]
         latent_out = {"samples": samples}
@@ -552,12 +551,12 @@ class EditTextEncode_EditUtils:
         custom_output = {
             "pad_info": pad_info,
             "full_refs_cond": conditioning_full_refs,
-            # "main_ref_cond": conditioning_only_with_main_ref,
+            "main_ref_cond": conditioning_main_ref,
             "main_image": main_image,
             "vae_images": vae_images,
             "ref_latents": ref_latents,
-            # "llama_template": llama_template,
-            # "no_refs_cond": conditioning,
+            "llama_template": llama_template,
+            "no_refs_cond": conditioning,
             "mask": noise_mask,
         }
         if is_qwen:
@@ -1092,6 +1091,10 @@ class LoadImageWithFilename_EditUtils:
         return True
 
 class QwenEditTextEncode_EditUtils:
+    upscale_methods = ["lanczos", "bicubic", "area"]
+    crop_methods = ["pad", "center", "disabled"]
+    vl_crop_methods = ["center", "disabled"]
+
     @classmethod
     def INPUT_TYPES(s):
         return {
@@ -1105,6 +1108,13 @@ class QwenEditTextEncode_EditUtils:
                 "image2": ("IMAGE", ),
                 "image3": ("IMAGE", ),
                 "ref_longest_edge": ("INT", {"default": 1024, "min": 8, "max": 4096, "step": 1, "tooltip": "Longest edge of the output latent"}),
+                "ref_crop": (s.crop_methods, {"default": "pad", "tooltip": "Crop method for reference image"}),
+                "ref_upscale": (s.upscale_methods, {"default": "lanczos", "tooltip": "Upscale method for reference image"}),
+                "to_vl": ("BOOLEAN", {"default": True, "tooltip": "Add image to Qwen-VL encode"}),
+                "vl_resize": ("BOOLEAN", {"default": True, "tooltip": "Resize image before Qwen-VL encode"}),
+                "vl_target_size": ("INT", {"default": 384, "min": 384, "max": 2048, "tooltip": "Target size for Qwen-VL image encode"}),
+                "vl_crop": (s.vl_crop_methods, {"default": "center", "tooltip": "Crop method for VL image processing"}),
+                "vl_upscale": (s.upscale_methods, {"default": "lanczos", "tooltip": "Upscale method for VL image processing"}),
                 "mask": ("MASK", ),
             }
         }
@@ -1118,7 +1128,14 @@ class QwenEditTextEncode_EditUtils:
     def encode(self, clip, vae, prompt,
                image1=None, image2=None, image3=None,
                mask=None,  # New mask parameter
-               ref_longest_edge=1024):
+               ref_longest_edge=1024,
+               ref_crop="pad",
+               ref_upscale="lanczos",
+               to_vl=True,
+               vl_resize=True,
+               vl_target_size=384,
+               vl_crop="center",
+               vl_upscale="lanczos"):
         # Prepare model config
         model_config = {
             "model_name": "qwen",
@@ -1138,13 +1155,13 @@ class QwenEditTextEncode_EditUtils:
                 "to_ref": True,  # Default to True
                 "ref_main_image": True,  # First image is main by default
                 "ref_longest_edge": ref_longest_edge,
-                "ref_crop": "pad",  # Default to pad
-                "ref_upscale": "lanczos",  # Default to lanczos
-                "to_vl": True,  # Default to True
-                "vl_resize": True,  # Default to True
-                "vl_target_size": 384,  # Default to 384
-                "vl_crop": "center",  # Default to center
-                "vl_upscale": "lanczos"  # Default to lanczos
+                "ref_crop": ref_crop,
+                "ref_upscale": ref_upscale,
+                "to_vl": to_vl,
+                "vl_resize": vl_resize,
+                "vl_target_size": vl_target_size,
+                "vl_crop": vl_crop,
+                "vl_upscale": vl_upscale
             }
             # Set mask to image1 if provided
             if mask is not None:
@@ -1157,13 +1174,13 @@ class QwenEditTextEncode_EditUtils:
                 "to_ref": True,  # Default to True
                 "ref_main_image": False,  # Only first image is main
                 "ref_longest_edge": ref_longest_edge,
-                "ref_crop": "pad",  # Default to pad
-                "ref_upscale": "lanczos",  # Default to lanczos
-                "to_vl": True,  # Default to True
-                "vl_resize": True,  # Default to True
-                "vl_target_size": 384,  # Default to 384
-                "vl_crop": "center",  # Default to center
-                "vl_upscale": "lanczos"  # Default to lanczos
+                "ref_crop": ref_crop,
+                "ref_upscale": ref_upscale,
+                "to_vl": to_vl,
+                "vl_resize": vl_resize,
+                "vl_target_size": vl_target_size,
+                "vl_crop": vl_crop,
+                "vl_upscale": vl_upscale
             }
             configs.append(config2)
         
@@ -1173,13 +1190,13 @@ class QwenEditTextEncode_EditUtils:
                 "to_ref": True,  # Default to True
                 "ref_main_image": False,  # Only first image is main
                 "ref_longest_edge": ref_longest_edge,
-                "ref_crop": "pad",  # Default to pad
-                "ref_upscale": "lanczos",  # Default to lanczos
-                "to_vl": True,  # Default to True
-                "vl_resize": True,  # Default to True
-                "vl_target_size": 384,  # Default to 384
-                "vl_crop": "center",  # Default to center
-                "vl_upscale": "lanczos"  # Default to lanczos
+                "ref_crop": ref_crop,
+                "ref_upscale": ref_upscale,
+                "to_vl": to_vl,
+                "vl_resize": vl_resize,
+                "vl_target_size": vl_target_size,
+                "vl_crop": vl_crop,
+                "vl_upscale": vl_upscale
             }
             configs.append(config3)
         
